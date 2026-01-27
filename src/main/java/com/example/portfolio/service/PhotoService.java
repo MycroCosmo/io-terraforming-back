@@ -7,44 +7,57 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
 
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 import com.example.portfolio.dto.ProjectCreateDto;
 import com.example.portfolio.dto.ProjectUpdateDto;
+import com.example.portfolio.exception.CustomException;
+import com.example.portfolio.exception.ErrorCode;
 import com.example.portfolio.model.Photo;
+import com.example.portfolio.model.Project;
 import com.example.portfolio.repository.PhotoRepository;
 import com.example.portfolio.repository.ProjectRepository;
 
 @Service
 public class PhotoService {
 
-	private final GcsService gcsService;
-	private final PhotoRepository photoRepository;
-	private final ProjectRepository projectRepository;
-	private final ExecutorService executorService = Executors.newFixedThreadPool(4); // 스레드 풀을 필드에 선언하여 재사용
+    private final GcsService gcsService;
+    private final PhotoRepository photoRepository;
+    private final ProjectRepository projectRepository;
+    private final ExecutorService executorService = Executors.newFixedThreadPool(4);
 
-	//생성자 주입
-	public PhotoService(GcsService gcsService, PhotoRepository photoRepository, ProjectRepository projectRepository) {
-		this.gcsService = gcsService;
-		this.photoRepository = photoRepository;
-		this.projectRepository = projectRepository;
-	}
+    public PhotoService(GcsService gcsService, PhotoRepository photoRepository, ProjectRepository projectRepository) {
+        this.gcsService = gcsService;
+        this.photoRepository = photoRepository;
+        this.projectRepository = projectRepository;
+    }
 
+    public void createPhotos(ProjectCreateDto dto, Long projectId) {
+        Project project = projectRepository.findById(projectId).orElseThrow(() -> new CustomException(
+                HttpStatus.NOT_FOUND,
+                ErrorCode.NOT_FIND_PROJECT,
+                "Project not found with id: " + projectId
+        ));
 
-    public void createPhotos(ProjectCreateDto projectCreateDto, Long projectId) {
-        MultipartFile[] multipartFiles = projectCreateDto.getPhotoMultipartFiles();
+        MultipartFile[] multipartFiles = dto.photoMultipartFiles();
+        if (multipartFiles == null || multipartFiles.length == 0) return;
+
         List<CompletableFuture<Photo>> futures = new ArrayList<>();
 
         for (MultipartFile multipartFile : multipartFiles) {
-            // CompletableFuture를 사용하여 비동기 처리
             CompletableFuture<Photo> future = CompletableFuture.supplyAsync(() -> {
-                Photo photo = new Photo();
                 String url = gcsService.uploadWebpFile(multipartFile, projectId);
-                photo.setImageUrl(url);
-                photo.setImgoname(multipartFile.getOriginalFilename());
-                photo.setImgtype("image/webp"); 
-                photo.setProjectId(projectId);
+
+                Photo photo = new Photo(
+                        url,
+                        multipartFile.getOriginalFilename(),
+                        "image/webp"
+                );
+
+                // 관계 연결
+                project.addPhoto(photo);
                 return photo;
             }, executorService);
 
@@ -52,57 +65,47 @@ public class PhotoService {
         }
 
         List<Photo> photos = futures.stream().map(CompletableFuture::join).collect(Collectors.toList());
-
-        // 한번에 저장
         photoRepository.saveAll(photos);
     }
 
-	// 사진 업데이트
-	public void updatePhotos(ProjectUpdateDto projectUpdateDto) {
-		MultipartFile[] multipartFiles = projectUpdateDto.getPhotoMultipartFiles();
+    // 사진 추가 업로드(업데이트 시)
+    public void addPhotos(Long projectId, ProjectUpdateDto dto) {
+        Project project = projectRepository.findById(projectId).orElseThrow(() -> new CustomException(
+                HttpStatus.NOT_FOUND,
+                ErrorCode.NOT_FIND_PROJECT,
+                "Project not found with id: " + projectId
+        ));
 
-		for (MultipartFile multipartFile : multipartFiles) {
-			Photo newPhoto = createPhoto(multipartFile, projectUpdateDto.getId());
-			String url = gcsService.uploadWebpFile(multipartFile, projectUpdateDto.getId());
-			newPhoto.setImageUrl(url);
-			newPhoto.setImgoname(multipartFile.getOriginalFilename());
-			newPhoto.setImgtype(multipartFile.getContentType());
-			photoRepository.save(newPhoto);
-		
-		}
-	}
+        MultipartFile[] multipartFiles = dto.photoMultipartFiles();
+        if (multipartFiles == null || multipartFiles.length == 0) return;
 
-	// 사진 삭제
-	public void deletePhotosByProjectId(Long projectId) {
-		List<Photo> photos = photoRepository.findAllByProjectId(projectId);
-		photoRepository.deleteAll(photos);
-		gcsService.deletePhotoToGcs(photos);
-	}
+        for (MultipartFile multipartFile : multipartFiles) {
+            String url = gcsService.uploadWebpFile(multipartFile, projectId);
 
-	// 있다면 true, 없다면 false
-	private boolean isPhotoInFiles(Photo existingPhoto, MultipartFile[] multipartFiles, Long projectId) {
-		for (MultipartFile multipartFile : multipartFiles) {
-			Photo newPhoto = createPhoto(multipartFile, projectId);
-			if (existingPhoto.equals(newPhoto)) {
-				return true;
-			}
-		}
-		return false;
-	}
+            Photo photo = new Photo(
+                    url,
+                    multipartFile.getOriginalFilename(),
+                    multipartFile.getContentType()
+            );
 
-	// 기존에 사진이 존재하는지 확인
-	private Photo createPhoto(MultipartFile file, Long projectId) {
-		Photo photo = new Photo();
-		photo.setImgoname(file.getOriginalFilename());
-		photo.setProjectId(projectId);
-		photo.setImgtype(file.getContentType());
-		return photo;
-	}
-	
-	// edit에서 삭제
-	public void deleteSelectedPhotos(List<Long> deletedPhotoIds) {
-		List<Photo> selecetedPhotos = photoRepository.findAllById(deletedPhotoIds);
-		photoRepository.deleteAll(selecetedPhotos);
-		gcsService.deletePhotoToGcs(selecetedPhotos);
-	}
+            project.addPhoto(photo);
+            photoRepository.save(photo);
+        }
+    }
+
+    // 프로젝트 삭제 시 전체 사진 삭제(메타 + GCS)
+    public void deletePhotosByProjectId(Long projectId) {
+        List<Photo> photos = photoRepository.findAllByProjectId(projectId);
+        photoRepository.deleteAll(photos);
+        gcsService.deletePhotoToGcs(photos);
+    }
+
+    // edit에서 선택 삭제
+    public void deleteSelectedPhotos(List<Long> deletedPhotoIds) {
+        if (deletedPhotoIds == null || deletedPhotoIds.isEmpty()) return;
+
+        List<Photo> selected = photoRepository.findAllById(deletedPhotoIds);
+        photoRepository.deleteAll(selected);
+        gcsService.deletePhotoToGcs(selected);
+    }
 }

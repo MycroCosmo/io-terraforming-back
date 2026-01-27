@@ -2,57 +2,51 @@ package com.example.portfolio.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 
-import jakarta.persistence.Entity;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
-import jakarta.persistence.ManyToOne;
-import jakarta.persistence.Table;
+import jakarta.persistence.*;
 
 @Entity
 @Table(name = "sub_category")
 public class SubCategory {
 
-	@Id
-	@GeneratedValue(strategy = GenerationType.IDENTITY)
-	private Long id;
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
 
-	private String name;
+    @Column(nullable = false, length = 255)
+    private String name;
 
-	@ManyToOne
-	@JsonIgnore
-	private Category category;
-	
-	public SubCategory() {}
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "category_id", nullable = false)
+    @JsonIgnore
+    private Category category;
 
-	public SubCategory(Long id, String name) {
-		super();
-		this.id = id;
-		this.name = name;
-	}
+    protected SubCategory() {
+    }
 
-	public Long getId() {
-		return id;
-	}
+    public SubCategory(String name) {
+        this.name = name;
+    }
 
-	public void setId(Long id) {
-		this.id = id;
-	}
+    // getter
+    public Long getId() {
+        return id;
+    }
 
-	public String getName() {
-		return name;
-	}
+    public String getName() {
+        return name;
+    }
 
-	public void setName(String name) {
-		this.name = name;
-	}
+    public Category getCategory() {
+        return category;
+    }
 
-	public Category getCategory() {
-		return category;
-	}
+    // 변경 메서드
+    public void changeName(String name) {
+        this.name = name;
+    }
 
-	public void setCategory(Category category) {
-		this.category = category;
-	}
-
+    // Category에서만 호출되도록 package-private 권장(같은 패키지면 가능)
+    void setCategory(Category category) {
+        this.category = category;
+    }
 }

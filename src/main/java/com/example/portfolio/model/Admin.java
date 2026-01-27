@@ -2,45 +2,46 @@ package com.example.portfolio.model;
 
 import java.io.Serializable;
 
+import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
+import jakarta.persistence.Table;
 
 @Entity
+@Table(name = "admin")
 public class Admin implements Serializable {
-	
-	@Id
-	private String id;
-	
-	private String password;
-	
-	public Admin() {}
-	
-	
-	public Admin(String id, String password) {
-		super();
-		this.id = id;
-		this.password = password;
-	}
-	
-	// Getter & Setter
-	public String getId() {
-		return id;
-	}
 
-	public void setId(String id) {
-		this.id = id;
-	}
+    private static final long serialVersionUID = 1L;
 
-	public String getPassword() {
-		return password;
-	}
+    @Id
+    @Column(length = 100)
+    private String id;
 
-	public void setPassword(String password) {
-		this.password = password;
-	}
-	
-	@Override
-	public String toString() {
-		return "Admin [id='" + id + "', password='" + password + "']";
-	}
+    @Column(nullable = false, length = 255)
+    private String password;
+
+    protected Admin() {
+    }
+
+    public Admin(String id, String password) {
+        this.id = id;
+        this.password = password;
+    }
+
+    public String getId() {
+        return id;
+    }
+
+    public String getPassword() {
+        return password;
+    }
+
+    public void changePassword(String password) {
+        this.password = password;
+    }
+
+    @Override
+    public String toString() {
+        return "Admin{id='" + id + "'}";
+    }
 }

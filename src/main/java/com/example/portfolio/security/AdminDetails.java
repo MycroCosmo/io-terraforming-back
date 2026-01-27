@@ -1,25 +1,32 @@
 package com.example.portfolio.security;
 
-import java.util.Collections;
+import java.util.Collection;
+import java.util.List;
 
+import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
-import org.springframework.security.core.userdetails.User;
+import org.springframework.security.core.userdetails.UserDetails;
 
 import com.example.portfolio.model.Admin;
 
-public class AdminDetails extends User {
+public class AdminDetails implements UserDetails {
 
-    private Admin admin;
+    private final String username;
+    private final String password;
+    private final List<GrantedAuthority> authorities;
 
     public AdminDetails(Admin admin) {
-    	super(admin.getId(), admin.getPassword(), 
-    			// Collections.singleton() : Collection에 권한을 1개만 주는 방법
-    			// SimpleGrantedAuthority() : 사용자 권한 설정 
-    			Collections.singleton(new SimpleGrantedAuthority("ROLE_ADMIN")));
-        this.admin = admin;
+        this.username = admin.getId();
+        this.password = admin.getPassword();
+        this.authorities = List.of(new SimpleGrantedAuthority("ROLE_ADMIN"));
     }
-    
-    public Admin getAdmin() {
-    	return admin;
-    }
+
+    @Override public Collection<? extends GrantedAuthority> getAuthorities() { return authorities; }
+    @Override public String getPassword() { return password; }
+    @Override public String getUsername() { return username; }
+
+    @Override public boolean isAccountNonExpired() { return true; }
+    @Override public boolean isAccountNonLocked() { return true; }
+    @Override public boolean isCredentialsNonExpired() { return true; }
+    @Override public boolean isEnabled() { return true; }
 }

@@ -3,134 +3,104 @@ package com.example.portfolio.model;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
+import java.util.Objects;
 
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.DynamicUpdate;
 
 import com.fasterxml.jackson.annotation.JsonFormat;
 
-import jakarta.persistence.CascadeType;
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.FetchType;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
-import jakarta.persistence.JoinColumn;
-import jakarta.persistence.ManyToOne;
-import jakarta.persistence.OneToMany;
+import jakarta.persistence.*;
 
 @Entity
 @DynamicUpdate
+@Table(name = "project")
 public class Project {
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(nullable = false)
     private String title;
+
+    @Column(nullable = false)
     private int view = 0;
-    
+
     @Column(name = "thumbnail_url")
     private String thumbnailUrl;
 
     @CreationTimestamp
     @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd", timezone = "Asia/Seoul")
-    @Column(name = "created_at")
+    @Column(name = "created_at", updatable = false)
     private Date createdAt;
 
-    @ManyToOne(fetch = FetchType.LAZY)  // Lazy 로딩 적용
-    @JoinColumn(name = "category_id")
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "category_id", nullable = false)
     private Category category;
-    
-    @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true)
-    private List<Photo> photos = new ArrayList<>();
-    
-    public List<Photo> getPhotos() {
-        return photos;
-    }
 
-    public void setPhotos(List<Photo> photos) {
-        this.photos = photos;
-    }
-
-    @ManyToOne(fetch = FetchType.LAZY)  // Lazy 로딩 적용
-    @JoinColumn(name = "sub_category_id")
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "sub_category_id", nullable = false)
     private SubCategory subCategory;
-    
-    public Project() {
-        super();
+
+    // Photo는 project 연관관계를 기준으로 관리 (projectId 필드 제거 전제)
+    @OneToMany(mappedBy = "project", cascade = CascadeType.ALL, orphanRemoval = true)
+    private final List<Photo> photos = new ArrayList<>();
+
+    protected Project() {
+        // JPA
     }
 
-    public Project(Long id, String title, int view, Date createdAt, String thumbnailUrl, Category category, SubCategory subCategory) {
-        super();
-        this.id = id;
+    public Project(String title, Category category, SubCategory subCategory) {
+        this.title = Objects.requireNonNull(title);
+        this.category = Objects.requireNonNull(category);
+        this.subCategory = Objects.requireNonNull(subCategory);
+    }
+
+    // ===== getters =====
+    public Long getId() { return id; }
+    public String getTitle() { return title; }
+    public int getView() { return view; }
+    public String getThumbnailUrl() { return thumbnailUrl; }
+    public Date getCreatedAt() { return createdAt; }
+    public Category getCategory() { return category; }
+    public SubCategory getSubCategory() { return subCategory; }
+    public List<Photo> getPhotos() { return photos; }
+
+    // ===== change methods (서비스에서 호출하는 것들) =====
+    public void changeTitle(String title) {
+        if (title == null || title.isBlank()) {
+            throw new IllegalArgumentException("title must not be blank");
+        }
         this.title = title;
-        this.view = view;
-        this.createdAt = createdAt;
-        this.thumbnailUrl = thumbnailUrl;
-        this.category = category;
-        this.subCategory = subCategory;
     }
 
-    public Long getId() {
-        return id;
+    public void changeCategory(Category category) {
+        this.category = Objects.requireNonNull(category);
     }
 
-    public void setId(Long id) {
-        this.id = id;
+    public void changeSubCategory(SubCategory subCategory) {
+        this.subCategory = Objects.requireNonNull(subCategory);
     }
 
-    public String getTitle() {
-        return title;
-    }
-
-    public void setTitle(String title) {
-        this.title = title;
-    }
-
-    public int getView() {
-        return view;
-    }
-
-    public void setView(int view) {
-        this.view = view;
-    }
-
-    public Date getCreatedAt() {
-        return createdAt;
-    }
-
-    public void setCreatedAt(Date createdAt) {
-        this.createdAt = createdAt;
-    }
-    
-    public String getThumbnailUrl() {
-        return thumbnailUrl;
-    }
-    
-    public void setThumbnailUrl(String thumbnailUrl) {
+    public void changeThumbnailUrl(String thumbnailUrl) {
+        // null 허용 여부는 정책에 따라 결정
         this.thumbnailUrl = thumbnailUrl;
     }
 
-    public Category getCategory() {
-        return category;
+    // ===== photo convenience =====
+    public void addPhoto(Photo photo) {
+        photos.add(Objects.requireNonNull(photo));
+        photo.assignProject(this);
     }
 
-    public void setCategory(Category category) {
-        this.category = category;
-    }
-
-    public SubCategory getSubCategory() {
-        return subCategory;
-    }
-
-    public void setSubCategory(SubCategory subCategory) {
-        this.subCategory = subCategory;
+    public void removePhoto(Photo photo) {
+        photos.remove(photo);
+        photo.assignProject(null);
     }
 
     @Override
     public String toString() {
-        return "Project [id=" + id + ", title=" + title + ", view=" + view + ", created_at=" + createdAt
-                + ", category=" + category + "]";
+        return "Project{id=" + id + ", title='" + title + "', view=" + view + "}";
     }
 }

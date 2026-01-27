@@ -4,12 +4,14 @@ import java.util.List;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -18,64 +20,70 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 @EnableWebSecurity
 @EnableMethodSecurity(securedEnabled = true)
 public class WebSecurityConfig {
-	
-	private final LoginFailureHandler loginFailureHandler;
-	
-	public WebSecurityConfig(LoginFailureHandler loginFailureHandler) {
-		this.loginFailureHandler = loginFailureHandler;
-	}
 
-	@Bean
-	public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
-		http
-	    // csrf 비활성화
-	    .csrf(csrf -> csrf.disable())
-	    // H2 콘솔을 위한 헤더 설정
-	    .headers(headers -> headers
-	        .contentSecurityPolicy(csp -> csp
-	            .policyDirectives("frame-ancestors 'self'")
-	        )
-	    )
-	    .cors(cors -> cors.configurationSource(corsConfigurationSource()))
-	    .authorizeHttpRequests(auth -> auth
-	        // H2 콘솔에 대한 접근 허용
-	        .requestMatchers("/h2-console/**").permitAll()
-	        // 특정 요청 보안 설정
-	        .requestMatchers("/Admin/**").authenticated()
-	        // permitAll() : 인증 없이 접근 허용 
-	        .anyRequest().permitAll()	
-	    )
-	    .formLogin(form -> form
-	        // 로그인 성공 시 이동할 url
-	    		.loginPage("/Admin/Login")
-				.loginProcessingUrl("/loginProcess")
-				.usernameParameter("id")
-				.defaultSuccessUrl("/api/loginSucess")
-				.failureHandler(loginFailureHandler)
-				.permitAll()
-	    );
+    private final LoginFailureHandler loginFailureHandler;
 
-	return http.build();
-	}
-	
-	// CORS 설정
-	@Bean
-	public CorsConfigurationSource corsConfigurationSource() {
-		CorsConfiguration config = new CorsConfiguration();
-		config.setAllowCredentials(true); // 쿠키 허용
-		config.setAllowedOrigins(List.of("http://localhost:9090")); // 프론트 port
-		config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS")); // 허용 메소드
-		config.setAllowedHeaders(List.of("*"));
-		
-		// url 경로마다 cors 적용 가능
-		UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-		source.registerCorsConfiguration("/**", config); // 동일하게 적용 
-		return source;
-	}
+    public WebSecurityConfig(LoginFailureHandler loginFailureHandler) {
+        this.loginFailureHandler = loginFailureHandler;
+    }
 
-	// 암호화 알고리즘
-	@Bean
-	public PasswordEncoder passwordEncoder() {
-		return new BCryptPasswordEncoder();
-	}
+    @Bean
+    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+        http
+            .csrf(csrf -> csrf.disable())
+            .cors(cors -> cors.configurationSource(corsConfigurationSource()))
+            .headers(headers -> headers
+                // H2 콘솔용 (개발에서만)
+                .frameOptions(frame -> frame.sameOrigin())
+            )
+            .authorizeHttpRequests(auth -> auth
+                .requestMatchers("/h2-console/**").permitAll()
+
+                // 관리자 페이지
+                .requestMatchers("/Admin/**").authenticated()
+
+                // 관리자 API는 반드시 보호
+                .requestMatchers("/api/admin/**").authenticated()
+
+                // 나머지는 공개
+                .anyRequest().permitAll()
+            )
+            .formLogin(form -> form
+                .loginPage("/Admin/Login")
+                .loginProcessingUrl("/loginProcess")
+                .usernameParameter("id")
+                .defaultSuccessUrl("/api/loginSucess", true)
+                .failureHandler(loginFailureHandler)
+                .permitAll()
+            )
+            .logout(logout -> logout
+                .logoutRequestMatcher(new AntPathRequestMatcher("/logout", "POST"))
+                .logoutSuccessUrl("/Admin/Login")
+                .invalidateHttpSession(true)
+                .deleteCookies("JSESSIONID")
+            );
+
+        return http.build();
+    }
+
+    @Bean
+    public CorsConfigurationSource corsConfigurationSource() {
+        CorsConfiguration config = new CorsConfiguration();
+        config.setAllowCredentials(true);
+
+        // 운영이면 properties로 빼서 관리하세요.
+        config.setAllowedOrigins(List.of("http://localhost:9090"));
+
+        config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
+        config.setAllowedHeaders(List.of("*"));
+
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/**", config);
+        return source;
+    }
+
+    @Bean
+    public PasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();
+    }
 }

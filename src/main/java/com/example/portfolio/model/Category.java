@@ -1,61 +1,60 @@
 package com.example.portfolio.model;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import org.hibernate.annotations.DynamicUpdate;
 
-import jakarta.persistence.CascadeType;
-import jakarta.persistence.Entity;
-import jakarta.persistence.FetchType;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
-import jakarta.persistence.OneToMany;
+import jakarta.persistence.*;
 
 @Entity
 @DynamicUpdate
+@Table(name = "category")
 public class Category {
-	@Id
-	@GeneratedValue(strategy = GenerationType.IDENTITY)
-	private Long id;
 
-	private String name;
-	
-	@OneToMany(mappedBy = "category", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
-	private List<SubCategory> subCategories;
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
 
-	public Category() {
-	}
+    @Column(nullable = false, length = 255)
+    private String name;
 
-	public Category(Long id, String name,  List<SubCategory> subCategories) {
-		super();
-		this.id = id;
-		this.name = name;
-		this.subCategories = subCategories;
-	}
+    @OneToMany(mappedBy = "category", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
+    private List<SubCategory> subCategories = new ArrayList<>();
 
-	public Long getId() {
-		return id;
-	}
+    protected Category() {
+    }
 
-	public void setId(Long id) {
-		this.id = id;
-	}
+    public Category(String name) {
+        this.name = name;
+    }
 
-	public String getName() {
-		return name;
-	}
+    // ===== 연관관계 편의 메서드 =====
+    public void addSubCategory(SubCategory subCategory) {
+        subCategories.add(subCategory);
+        subCategory.setCategory(this);
+    }
 
-	public void setName(String name) {
-		this.name = name;
-	}
+    public void removeSubCategory(SubCategory subCategory) {
+        subCategories.remove(subCategory);
+        subCategory.setCategory(null);
+    }
 
-	public List<SubCategory> getSubCategories() {
-		return subCategories;
-	}
+    // ===== getter =====
+    public Long getId() {
+        return id;
+    }
 
-	public void setSubCategories(List<SubCategory> subCategories) {
-		this.subCategories = subCategories;
-	}
+    public String getName() {
+        return name;
+    }
 
+    public List<SubCategory> getSubCategories() {
+        return subCategories;
+    }
+
+    // ===== 변경 메서드 =====
+    public void changeName(String name) {
+        this.name = name;
+    }
 }

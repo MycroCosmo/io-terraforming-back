@@ -2,90 +2,42 @@ package com.example.portfolio.model;
 
 import java.util.Objects;
 
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
+import jakarta.persistence.*;
 
 @Entity
+@Table(name = "photo")
 public class Photo {
 
-	@Id
-	@GeneratedValue(strategy = GenerationType.IDENTITY)
-	private Long id;
-	
-	@Column(name = "image_url")
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(name = "image_url", nullable = false)
     private String imageUrl;
-	
-	@Column(name = "project_id")
-    private Long projectId;
-	
-	private String imgoname;
-	private String imgtype;
-	
-	public Photo() {}
 
-	public Long getId() {
-		return id;
-	}
+    private String imgoname;
+    private String imgtype;
 
-	public void setId(Long id) {
-		this.id = id;
-	}
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "project_id")
+    private Project project;
 
-	public String getImageUrl() {
-		return imageUrl;
-	}
+    protected Photo() {}
 
+    public Photo(String imageUrl, String imgoname, String imgtype) {
+        this.imageUrl = Objects.requireNonNull(imageUrl);
+        this.imgoname = imgoname;
+        this.imgtype = imgtype;
+    }
 
-	public void setImageUrl(String imageUrl) {
-		this.imageUrl = imageUrl;
-	}
+    public Long getId() { return id; }
+    public String getImageUrl() { return imageUrl; }
+    public String getImgoname() { return imgoname; }
+    public String getImgtype() { return imgtype; }
+    public Project getProject() { return project; }
 
-	public Long getProjectId() {
-		return projectId;
-	}
-
-	public void setProjectId(Long projectId) {
-		this.projectId = projectId;
-	}
-	
-	public String getImgoname() {
-		return imgoname;
-	}
-	
-	public void setImgoname(String imgoname) {
-		this.imgoname = imgoname;
-	}
-	
-	public String getImgtype() {
-		return imgtype;
-	}
-	
-	public void setImgtype(String imgtype) {
-		this.imgtype = imgtype;
-	}
-	
-	// hashcode 비교를 위해서 재구성
-	@Override
-	public int hashCode() {
-		return Objects.hash(imgoname, imgtype, projectId);
-	}
-	
-	// 동등성 비교를 위해서 재구성
-	@Override
-	public boolean equals(Object obj) {
-		if (this == obj)
-			return true;
-		if (obj == null)
-			return false;
-		if (getClass() != obj.getClass())
-			return false;
-		Photo other = (Photo) obj;
-		return Objects.equals(imgoname, other.imgoname) 
-				&& Objects.equals(imgtype, other.imgtype)
-				&& Objects.equals(projectId, other.projectId);
-	}
-	
+    // Project convenience에서 호출됨
+    public void assignProject(Project project) {
+        this.project = project;
+    }
 }
