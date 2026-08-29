@@ -95,7 +95,7 @@ public class PhotoService {
 
     // 프로젝트 삭제 시 전체 사진 삭제(메타 + GCS)
     public void deletePhotosByProjectId(Long projectId) {
-        List<Photo> photos = photoRepository.findAllByProjectId(projectId);
+        List<Photo> photos = photoRepository.findAllByProject_Id(projectId);
         photoRepository.deleteAll(photos);
         gcsService.deletePhotoToGcs(photos);
     }

@@ -34,7 +34,7 @@ public class CategoryController {
 
     // 생성
     @PostMapping
-    public CategoryCreateDto create(@RequestBody CategoryCreateDto dto) {
+    public CategoryDto create(@RequestBody CategoryCreateDto dto) {
         return categoryService.createCategories(dto);
     }
 
@@ -65,7 +65,7 @@ public class CategoryController {
 
     // 서브카테고리 생성
     @PostMapping("/{categoryId}/subcategories")
-    public SubCategoryCreateDto createSubCategory(
+    public SubCategoryDto createSubCategory(
             @PathVariable Long categoryId,
             @RequestBody SubCategoryCreateDto dto
     ) {
