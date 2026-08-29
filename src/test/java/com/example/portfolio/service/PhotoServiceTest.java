@@ -57,6 +57,8 @@ class PhotoServiceTest {
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<Photo>> captor = ArgumentCaptor.forClass(List.class);
         verify(photoRepository).saveAll(captor.capture());
+        verify(gcsService).deleteOnRollback("https://example.com/1.webp");
+        verify(gcsService).deleteOnRollback("https://example.com/2.webp");
         assertThat(captor.getValue()).hasSize(2).allMatch(photo -> photo.getProject() == project);
     }
 }

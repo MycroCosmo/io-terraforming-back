@@ -1,11 +1,6 @@
 package com.example.portfolio.service;
 
-import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.stream.Collectors;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -26,7 +21,6 @@ public class PhotoService {
     private final GcsService gcsService;
     private final PhotoRepository photoRepository;
     private final ProjectRepository projectRepository;
-    private final ExecutorService executorService = Executors.newFixedThreadPool(4);
 
     public PhotoService(GcsService gcsService, PhotoRepository photoRepository, ProjectRepository projectRepository) {
         this.gcsService = gcsService;
@@ -44,27 +38,16 @@ public class PhotoService {
         MultipartFile[] multipartFiles = dto.photoMultipartFiles();
         if (multipartFiles == null || multipartFiles.length == 0) return;
 
-        List<CompletableFuture<Photo>> futures = new ArrayList<>();
+        List<Photo> photos = new java.util.ArrayList<>();
 
         for (MultipartFile multipartFile : multipartFiles) {
-            CompletableFuture<Photo> future = CompletableFuture.supplyAsync(() -> {
-                String url = gcsService.uploadWebpFile(multipartFile, projectId);
-
-                Photo photo = new Photo(
-                        url,
-                        multipartFile.getOriginalFilename(),
-                        "image/webp"
-                );
-
-                // 관계 연결
-                project.addPhoto(photo);
-                return photo;
-            }, executorService);
-
-            futures.add(future);
+            String url = gcsService.uploadWebpFile(multipartFile, projectId);
+            gcsService.deleteOnRollback(url);
+            Photo photo = new Photo(url, multipartFile.getOriginalFilename(), "image/webp");
+            project.addPhoto(photo);
+            photos.add(photo);
         }
 
-        List<Photo> photos = futures.stream().map(CompletableFuture::join).collect(Collectors.toList());
         photoRepository.saveAll(photos);
     }
 
@@ -81,6 +64,7 @@ public class PhotoService {
 
         for (MultipartFile multipartFile : multipartFiles) {
             String url = gcsService.uploadWebpFile(multipartFile, projectId);
+            gcsService.deleteOnRollback(url);
 
             Photo photo = new Photo(
                     url,
@@ -97,7 +81,7 @@ public class PhotoService {
     public void deletePhotosByProjectId(Long projectId) {
         List<Photo> photos = photoRepository.findAllByProject_Id(projectId);
         photoRepository.deleteAll(photos);
-        gcsService.deletePhotoToGcs(photos);
+        photos.forEach(photo -> gcsService.deleteAfterCommit(photo.getImageUrl()));
     }
 
     // edit에서 선택 삭제
@@ -106,6 +90,6 @@ public class PhotoService {
 
         List<Photo> selected = photoRepository.findAllById(deletedPhotoIds);
         photoRepository.deleteAll(selected);
-        gcsService.deletePhotoToGcs(selected);
+        selected.forEach(photo -> gcsService.deleteAfterCommit(photo.getImageUrl()));
     }
 }

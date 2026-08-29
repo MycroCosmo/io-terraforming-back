@@ -72,6 +72,7 @@ public class ProjectService {
         MultipartFile thumbnail = dto.thumbnailMultipartFile();
         if (thumbnail != null && !thumbnail.isEmpty()) {
             String url = gcsService.uploadWebpFile(thumbnail, projectId);
+            gcsService.deleteOnRollback(url);
             project.changeThumbnailUrl(url);
         }
 
@@ -105,8 +106,10 @@ public class ProjectService {
         // 썸네일 변경
         MultipartFile newThumb = dto.thumbnailMultipartFile();
         if (newThumb != null && !newThumb.isEmpty()) {
-            gcsService.deleteThumbnailFile(existing.getThumbnailUrl());
+            String oldUrl = existing.getThumbnailUrl();
             String url = gcsService.uploadWebpFile(newThumb, projectId);
+            gcsService.deleteOnRollback(url);
+            gcsService.deleteAfterCommit(oldUrl);
             existing.changeThumbnailUrl(url);
         }
 
@@ -137,7 +140,7 @@ public class ProjectService {
                 "Project not found with id: " + id
         ));
 
-        gcsService.deleteThumbnailFile(project.getThumbnailUrl());
+        gcsService.deleteAfterCommit(project.getThumbnailUrl());
         photoService.deletePhotosByProjectId(id);
 
         projectRepository.delete(project);

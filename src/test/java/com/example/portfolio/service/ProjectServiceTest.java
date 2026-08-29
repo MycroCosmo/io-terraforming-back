@@ -62,6 +62,7 @@ class ProjectServiceTest {
         assertThat(saved.getCategory()).isSameAs(category);
         assertThat(saved.getSubCategory()).isSameAs(subCategory);
         assertThat(saved.getThumbnailUrl()).isEqualTo("https://example.com/thumb.webp");
+        verify(gcsService).deleteOnRollback("https://example.com/thumb.webp");
         verify(photoService).createPhotos(dto, 10L);
     }
 }
