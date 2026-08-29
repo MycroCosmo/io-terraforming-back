@@ -148,7 +148,7 @@ public class ProjectService {
 
     @Transactional(readOnly = true)
     @Cacheable(value = "projectList",
-            key = "(#categoryId != null ? #categoryId : 'all') + '-' + (#subCategoryId != null ? #subCategoryId : 'all') + '-' + #pageable.pageNumber")
+            key = "(#categoryId != null ? #categoryId : 'all') + '-' + (#subCategoryId != null ? #subCategoryId : 'all') + '-' + #pageable.pageNumber + '-' + #pageable.pageSize + '-' + #pageable.sort")
     public Slice<ProjectListDto> getProjectList(Pageable pageable, Long categoryId, Long subCategoryId) {
         if (categoryId == null && subCategoryId == null) {
             return projectRepository.findAllProject(pageable);
@@ -160,7 +160,7 @@ public class ProjectService {
     }
 
     @Transactional(readOnly = true)
-    @Cacheable(value = "adminProjectList", key = "#keyWord + '-' + #pageable.pageNumber + #pageable.sort.toString()")
+    @Cacheable(value = "adminProjectList", key = "#keyWord + '-' + #pageable.pageNumber + '-' + #pageable.pageSize + '-' + #pageable.sort")
     public ProjectListCustomDto getAdminProjectList(Pageable pageable, String keyWord) {
         Page<ProjectListDto> page = projectRepository.findByKeyWord(pageable, keyWord);
         return new ProjectListCustomDto(page.getContent(), page.getTotalPages());
@@ -184,7 +184,7 @@ public class ProjectService {
     }
 
     @Transactional(readOnly = true)
-    @Cacheable(value = "project", key = "#projectId + '-' + #pageable.pageNumber")
+    @Cacheable(value = "project", key = "#projectId + '-' + #pageable.pageNumber + '-' + #pageable.pageSize + '-' + #pageable.sort")
     public ProjectDetailPageDto getPhotoList(Pageable pageable, Long projectId) {
 
         Project project = projectRepository.findById(projectId).orElseThrow(() -> new CustomException(
@@ -197,7 +197,11 @@ public class ProjectService {
         return new ProjectDetailPageDto(project.getTitle(), project.getThumbnailUrl(), photos);
     }
 
-    @CacheEvict(value = "adminProjectList", allEntries = true)
+    @Transactional
+    @Caching(evict = {
+            @CacheEvict(value = "projectList", allEntries = true),
+            @CacheEvict(value = "adminProjectList", allEntries = true)
+    })
     public void updateViewCount(Long projectId) {
         projectRepository.updateViewCount(projectId);
     }
