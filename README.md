@@ -1,479 +1,70 @@
 # Photo Portfolio Backend
 
-포트폴리오 사진들을 관리하고 전시하는 Spring Boot 기반 백엔드 애플리케이션입니다.
+사진 프로젝트를 카테고리별로 관리하고 전시하는 Spring Boot 백엔드입니다. 프로젝트·카테고리·사진 조회, 관리자 기능, GCS 이미지 처리 코드를 포함합니다.
 
----
+현재 기본 브랜치에는 DTO와 엔티티 변경 후 서비스·테스트에 반영되지 않은 부분이 있어, 리팩터링 완료 버전으로 소개하지 않습니다.
 
-## 주요 기능
+## 기술 구성
 
-- **프로젝트 관리**: 카테고리/서브카테고리별 프로젝트 생성, 수정, 삭제
-- **사진 관리**: Google Cloud Storage(GCS)에 WebP 형식으로 업로드 및 관리
-- **관리자 패널**: 프로젝트 검색, 필터링, 조회수 추적
-- **캐싱**: Spring Cache를 활용한 성능 최적화
-- **보안**: Spring Security를 통한 관리자 인증
+빌드 설정 기준으로 Java 17, Spring Boot 3.3.4, Spring Data JPA, Spring Security, Spring Cache, MapStruct, GCS와 WebP 변환 라이브러리를 사용합니다. PostgreSQL·H2 의존성이 포함되어 있습니다. Redis나 MySQL을 현재 구성의 필수 요소로 표시하지 않습니다.
 
----
-
-## v2.0 리팩토링 (최신)
-
-### 불변 DTO 설계 (Java Records)
-
-모든 DTO를 Java record로 전환하여 불변성과 타입 안정성을 강화했습니다.
-
-**변경 전:**
-```java
-public class ProjectListDto {
-    private Long id;
-    private String title;
-    
-    public Long getId() { return id; }
-    public void setId(Long id) { this.id = id; }
-    // ... 많은 boilerplate 코드
-}
+```text
+REST Controller
+  └─ Service
+       ├─ JPA Repository → 데이터베이스
+       └─ GcsService → WebP 변환·GCS 저장
 ```
 
-**변경 후:**
-```java
-public record ProjectListDto(
-    Long id,
-    String title,
-    String imageUrl,
-    Date createdAt,
-    int view,
-    String categoryName,
-    String subCategoryName,
-    Long imageCount
-) {}
-```
+## 코드에서 확인할 부분
 
-**장점:**
-- 불변 객체 자동 생성
-- 보일러플레이트 코드 제거 (~500줄)
-- equals(), hashCode(), toString() 자동 구현
-- 컴파일 타임 타입 안전성
+- [프로젝트 API](src/main/java/com/example/portfolio/controller/ProjectController.java)
+- [프로젝트 조회·변경 서비스](src/main/java/com/example/portfolio/service/ProjectService.java)
+- [카테고리 연관 조회와 프로젝트 쿼리](src/main/java/com/example/portfolio/repository/ProjectRepository.java)
+- [사진 처리](src/main/java/com/example/portfolio/service/PhotoService.java)
+- [GCS 연동](src/main/java/com/example/portfolio/service/GcsService.java)
 
----
+엔티티의 변경 메서드와 관계 편의 메서드, record DTO, DTO 기반 조회와 fetch join 등의 리팩터링 코드가 있습니다. 이러한 코드의 존재와 전체 빌드·테스트의 통과 여부는 별도로 확인해야 합니다.
 
-### 엔티티 캡슐화 및 Change Methods
+## 프로젝트 API 경로
 
-Public setter 제거하고 Change Method 패턴으로 전환했습니다.
+현재 `ProjectController`에 정의된 경로입니다. 실행 성공을 검증한 API 목록이라는 뜻은 아닙니다.
 
-**변경 전:**
-```java
-@Entity
-public class Project {
-    private String title;
-    
-    public void setTitle(String title) {
-        this.title = title;  // 검증 없음
-    }
-}
+| 메서드 | 경로 | 역할 |
+| --- | --- | --- |
+| POST | `/api/projects` | 프로젝트 생성 |
+| PUT | `/api/projects/{projectId}` | 프로젝트 수정 |
+| GET | `/api/projects` | 프로젝트 목록 |
+| GET | `/api/projects/{projectId}` | 프로젝트 상세 |
+| GET | `/api/projects/{id}/photos` | 프로젝트 사진 목록 |
+| DELETE | `/api/projects/{projectId}` | 프로젝트 삭제 |
 
-// 사용
-project.setTitle(""); // 위험: 빈 문자열 저장 가능
-```
+## 현재 리팩터링 제한
 
-**변경 후:**
-```java
-@Entity
-public class Project {
-    private String title;
-    
-    public void changeTitle(String title) {
-        if (title == null || title.isBlank()) {
-            throw new IllegalArgumentException("제목은 공백일 수 없습니다");
-        }
-        this.title = title;
-    }
-}
+### 서비스와 테스트의 일치
 
-// 사용
-project.changeTitle(""); // 예외 발생: 안전
-```
+record로 변경된 DTO와 과거 setter 기반 테스트가 함께 남아 있습니다. 서비스에서 사용하는 Repository 참조·메서드와 현재 선언도 일치 여부를 정리해야 합니다. 테스트 파일이 존재한다는 이유만으로 회귀 검증 완료 상태로 간주하지 않습니다.
 
-**적용된 엔티티:**
-- **Project**: changeTitle(), changeCategory(), changeSubCategory(), changeThumbnailUrl()
-- **Category**: changeName()
-- **SubCategory**: changeName()
-- **Photo**: 관계 전용 setProject() (패키지 프라이빗)
+### 업로드와 DB의 실패 처리
 
-**추가: 관계 편의 메서드**
-```java
-// Project에서 사진 관리
-project.addPhoto(photo);      // 양방향 관계 자동 설정
-project.removePhoto(photo);   // 양방향 관계 자동 제거
+현재 `GcsService.uploadWebpFile()`은 비동기 업로드를 시작한 뒤 완료를 기다리지 않고 URL을 반환합니다. 따라서 동기 업로드 완료 후 URL을 저장하는 버전과는 다릅니다.
 
-// Category에서 서브카테고리 관리
-category.addSubCategory(sub); // 양방향 관계 자동 설정
-```
+썸네일 교체 코드에서는 기존 파일 삭제가 먼저 호출됩니다. DB 롤백 시 신규 파일 삭제, DB 커밋 후 기존 파일 삭제가 완성되어 있다고 설명하지 않습니다. 파일 저장소와 DB 사이의 보상 처리 및 실패 테스트는 별도 수정 대상입니다.
 
----
+### 성능 수치
 
-### N+1 쿼리 문제 해결
+기존 문서의 응답 시간·DB 부하 감소·코드 줄 수 감소 수치는 재현 가능한 측정 근거가 확인되지 않아 제거했습니다. 정량 성과를 추가할 때는 데이터 규모, 실행 환경, 측정 방법과 전후 결과를 함께 기록해야 합니다.
 
-#### 문제 상황
-```java
-// Before: N+1 쿼리 발생!
-List<Category> categories = projectRepository.findCategoriesWithProjects();
-// Query 1: SELECT * FROM category WHERE id IN (SELECT DISTINCT category_id FROM project)
-// Query 2~N: SELECT * FROM sub_category WHERE category_id = ?
+## 로컬 검증 절차
 
-for (Category c : categories) {
-    c.getSubCategories().forEach(...);  // 각 카테고리마다 추가 쿼리
-}
-```
+JDK 17을 준비하고 저장소 루트에서 실행합니다.
 
-#### 해결: Fetch Join 적용
-```java
-// After: 1개 쿼리로 해결
-@Query("""
-    SELECT DISTINCT c
-    FROM Project p
-    JOIN p.category c
-    LEFT JOIN FETCH c.subCategories sc
-""")
-List<Category> findCategoriesWithProjectsFetchSubCategories();
-
-// 결과: 한 번의 SQL로 category + subcategories 모두 로드
-```
-
-**성능 개선:**
-- 쿼리 수: N+1 → 1 (예: 50개 카테고리 기준 50 쿼리 → 1 쿼리)
-- DB 부하 감소: 약 95%
-- 응답 속도 향상: 평균 500ms → 50ms
-
----
-
-### Photo 엔티티 관계 개선
-
-#### 문제: 약한 외래키 관계
-```java
-@Entity
-public class Photo {
-    @Column(name = "project_id")
-    private Long projectId;  // 타입 불안전
-    // 실제 Project와 관계 없음 → orphaned record 가능
-}
-```
-
-#### 해결: 강한 @ManyToOne 관계
-```java
-@Entity
-public class Photo {
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "project_id", nullable = false)
-    private Project project;  // 타입 안전
-}
-
-// 사용
-Photo photo = new Photo(imageUrl, fileName, contentType);
-project.addPhoto(photo);  // 관계 자동 설정
-photoRepository.save(photo);  // Project 존재 보장
-```
-
-**장점:**
-- 타입 안전성 (Long이 아닌 Project 객체)
-- orphaned photo 방지 (Project 삭제 시 자동 삭제)
-- 쿼리 최적화 (관계 기반 조회 가능)
-- 데이터 무결성 보장 (NOT NULL 제약)
-
----
-
-### DTO 입출력 명확화
-
-Create와 Response 용도로 DTO를 분리했습니다.
-
-**카테고리 예시:**
-
-```java
-// 입력 (생성 시)
-public record CategoryCreateDto(String name) {}
-
-// 출력 (응답)
-public record CategoryDto(
-    Long id,
-    String name,
-    List<SubCategoryDto> subCategories
-) {}
-
-// Service
-@Transactional
-public CategoryDto createCategories(CategoryCreateDto dto) {
-    Category category = categoryMapper.createDtoToEntity(dto);
-    Category saved = categoryRepository.save(category);
-    return toCategoryDto(saved);  // CategoryDto로 응답
-}
-```
-
-**REST API:**
-```
-POST /api/categories
-Request:  { "name": "Photography" }
-Response: { "id": 1, "name": "Photography", "subCategories": [] }
-```
-
-**장점:**
-- API 명확성 (입력 필드 vs 응답 필드 구분)
-- 보안 (불필요한 필드 노출 방지)
-- 유연성 (입력/출력 구조 독립적 변경 가능)
-
----
-
-### Service 레이어 최적화
-
-**Setter 호출 제거:**
-```java
-// Before
-Project project = projectRepository.findById(id).orElseThrow(...);
-project.setTitle(dto.title());  // setter 호출
-project.setCategory(category);
-projectRepository.save(project);  // 명시적 save
-
-// After
-Project project = projectRepository.findById(id).orElseThrow(...);
-project.changeTitle(dto.title());  // change method 호출
-project.changeCategory(category);
-// save() 생략 → Dirty Checking으로 자동 반영 (@Transactional)
-```
-
-**Lazy Loading 최적화:**
-```java
-// getReferenceById 사용으로 불필요한 조회 방지
-Category category = categoryRepository.getReferenceById(dto.categoryId());
-SubCategory subCategory = subCategoryRepository.getReferenceById(dto.subcategoryId());
-project.changeCategory(category);
-project.changeSubCategory(subCategory);
-// 실제 엔티티 조회 없이 프록시만 생성
-```
-
-**동시성 처리:**
-```java
-public void createPhotos(ProjectCreateDto dto, Long projectId) {
-    Project project = projectRepository.findById(projectId)...
-    
-    // ExecutorService로 사진 병렬 업로드
-    List<CompletableFuture<Photo>> futures = new ArrayList<>();
-    for (MultipartFile file : dto.photoMultipartFiles()) {
-        CompletableFuture<Photo> future = CompletableFuture.supplyAsync(() -> {
-            String url = gcsService.uploadWebpFile(file, projectId);
-            return new Photo(url, file.getOriginalFilename(), "image/webp");
-        }, executorService);
-        futures.add(future);
-    }
-    
-    List<Photo> photos = futures.stream()
-        .map(CompletableFuture::join)
-        .collect(Collectors.toList());
-    
-    photos.forEach(project::addPhoto);
-    photoRepository.saveAll(photos);
-}
-```
-
----
-
-### Repository 쿼리 강화
-
-**추가된 메서드:**
-
-| 메서드 | 기능 | 성능 |
-|--------|------|------|
-| `findByKeyWord()` | 제목 검색 + 이미지 수 카운팅 | LEFT JOIN + GROUP BY |
-| `findCategoriesWithProjectsFetchSubCategories()` | 카테고리 + 서브카테고리 한 번에 조회 | LEFT JOIN FETCH |
-| `findProjectDetailByProjectId()` | 프로젝트 상세 정보 조회 | JOIN (category, subCategory) |
-| `findSubCategoriesWithProjects()` | 카테고리별 서브카테고리 필터링 | WHERE 절 |
-| `updateViewCount()` | 조회수 증가 | @Modifying (INSERT 아님) |
-
-**쿼리 예시:**
-```java
-// 이미지 수와 함께 프로젝트 검색
-@Query("""
-    SELECT new com.example.portfolio.dto.ProjectListDto(
-        p.id, p.title, p.thumbnailUrl, p.createdAt, p.view,
-        p.category.name, p.subCategory.name, COUNT(ph)
-    )
-    FROM Project p
-    LEFT JOIN p.photos ph
-    WHERE LOWER(p.title) LIKE LOWER(CONCAT('%', :keyWord, '%'))
-    GROUP BY p.id, p.title, p.thumbnailUrl, p.createdAt, p.view, p.category.name, p.subCategory.name
-""")
-Page<ProjectListDto> findByKeyWord(Pageable pageable, @Param("keyWord") String keyWord);
-```
-
----
-
-## 리팩토링 효과
-
-| 항목 | 변경 전 | 변경 후 | 개선도 |
-|------|--------|--------|--------|
-| **코드 라인 수** | ~6,000 | ~5,500 | -8% (보일러플레이트 제거) |
-| **N+1 쿼리** | 카테고리 조회 시 1+N | 1개 쿼리 | 95% 개선 |
-| **응답 시간** | ~500ms | ~50ms | 10배 개선 |
-| **타입 안정성** | getter/setter | records | 안정성 ↑ |
-| **불변성** | 공개 setter | change methods | 안정성 ↑ |
-| **DTO 일관성** | 혼용 | 명확히 분리 | 가독성 ↑ |
-
----
-
-## 🛠 기술 스택
-
-**Backend:**
-- Java 16+
-- Spring Boot 3.x
-- Spring Data JPA / Hibernate
-- Spring Security
-- Spring Cache (Redis)
-- MapStruct (DTO 매핑)
-
-**Database:**
-- MySQL 8.0
-
-**Cloud:**
-- Google Cloud Storage (GCS)
-
-**Build:**
-- Gradle 8.x
-
----
-
-## 설치 및 실행
-
-### 요구사항
-- Java 16 이상
-- MySQL 8.0 이상
-- Gradle 8.x 이상
-
-### 설치
 ```bash
-git clone https://github.com/your-repo/photo-portfolio-backend.git
-cd photo-portfolio-backend
+./gradlew compileJava
+./gradlew test
 ```
 
-### 설정
-```properties
-# application.properties
-spring.datasource.url=jdbc:mysql://localhost:3306/portfolio
-spring.datasource.username=root
-spring.datasource.password=password
-spring.jpa.hibernate.ddl-auto=update
+Windows에서는 `.\gradlew.bat`를 사용합니다. 현재 리팩터링 불일치가 남아 있으므로 위 명령을 통과했다고 보장하지 않습니다. 먼저 컴파일·테스트를 정리한 뒤 실행 환경을 설정해야 합니다.
 
-# GCS
-gcs.project-id=your-project-id
-gcs.bucket-name=your-bucket-name
-gcs.key-file=/path/to/service-account-key.json
-```
+GCS 서비스는 `spring.cloud.gcp.storage.bucket`과 `spring.cloud.gcp.storage.credentials.location` 설정을 읽습니다. 자격 증명은 저장소 밖에서 관리해야 합니다. 테스트에는 외부 GCS 호출을 분리하고 개발용 DB를 사용하세요.
 
-### 실행
-```bash
-./gradlew bootRun
-```
-
-서버는 `http://localhost:8080`에서 시작됩니다.
-
----
-
-## API 문서
-
-### 프로젝트
-
-| 메서드 | 경로 | 설명 |
-|--------|------|------|
-| POST | `/api/create/project` | 프로젝트 생성 |
-| PUT | `/api/update/project/{id}` | 프로젝트 수정 |
-| DELETE | `/api/{id}` | 프로젝트 삭제 |
-| GET | `/api/get/project` | 프로젝트 목록 (필터링 가능) |
-| GET | `/api/get/project/{id}` | 프로젝트 상세 조회 |
-| GET | `/api/get/project/{id}/photos` | 프로젝트 사진 페이지 |
-
-### 카테고리
-
-| 메서드 | 경로 | 설명 |
-|--------|------|------|
-| GET | `/api/categories` | 카테고리 목록 |
-| POST | `/api/categories` | 카테고리 생성 |
-| PUT | `/api/categories/{id}` | 카테고리 수정 |
-| DELETE | `/api/categories/{id}` | 카테고리 삭제 |
-
-### 서브카테고리
-
-| 메서드 | 경로 | 설명 |
-|--------|------|------|
-| GET | `/api/categories/{categoryId}/subcategories` | 서브카테고리 목록 |
-| POST | `/api/categories/{categoryId}/subcategories` | 서브카테고리 생성 |
-| PUT | `/api/categories/{categoryId}/subcategories/{id}` | 서브카테고리 수정 |
-| DELETE | `/api/categories/{categoryId}/subcategories/{id}` | 서브카테고리 삭제 |
-
-**예시:**
-```bash
-# 카테고리 생성
-curl -X POST http://localhost:8080/api/categories \
-  -H "Content-Type: application/json" \
-  -d '{"name": "Photography"}'
-
-# 응답
-{"id": 1, "name": "Photography", "subCategories": []}
-```
-
----
-
-## 아키텍처
-
-### 레이어 구조
-```
-Controller (REST API)
-    ↓
-Service (비즈니스 로직)
-    ↓
-Repository (데이터 접근)
-    ↓
-Entity (도메인 모델)
-    ↓
-Database
-```
-
-### 주요 클래스
-
-**Entity:**
-- `Project`: 프로젝트 정보
-- `Category`: 카테고리
-- `SubCategory`: 서브카테고리
-- `Photo`: 사진 이미지
-- `Admin`: 관리자
-
-**DTO:**
-- 입력: `ProjectCreateDto`, `CategoryCreateDto`, `SubCategoryCreateDto`
-- 출력: `ProjectListDto`, `ProjectDetailDto`, `CategoryDto`, `SubCategoryDto`
-- 기타: `ProjectDetailPageDto`, `ProjectListCustomDto`
-
-**Service:**
-- `ProjectService`: 프로젝트 관리
-- `CategoryService`: 카테고리 관리
-- `PhotoService`: 사진 관리
-- `GcsService`: Google Cloud Storage 연동
-
----
-
-## 보안
-
-- Spring Security 적용
-- 관리자 로그인 필수
-- CORS 설정 (localhost:9090만 허용)
-- 비밀번호 암호화 (BCrypt)
-
----
-
-## 라이선스
-
-이 프로젝트는 MIT 라이선스를 따릅니다.
-
----
-
-## 기여
-
-버그 리포트, 기능 제안은 Issue를 통해 제출해주세요.
-
----
-
-## 연락처
-
-질문이나 피드백은 [your-email@example.com](mailto:your-email@example.com)으로 연락주세요.
+이 문서 수정은 소스 코드 리팩터링이나 배포를 수행한 작업이 아닙니다. 현재 저장소와 문서의 불일치를 바로잡은 것입니다.
