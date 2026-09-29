@@ -1,70 +1,104 @@
 # Photo Portfolio Backend
 
-사진 프로젝트를 카테고리별로 관리하고 전시하는 Spring Boot 백엔드입니다. 프로젝트·카테고리·사진 조회, 관리자 기능, GCS 이미지 처리 코드를 포함합니다.
+사진작가의 프로젝트와 이미지를 카테고리별로 전시·관리하는 Spring Boot API입니다.
+4인 팀 프로젝트로 시작했고, 이후 혼자 조회 구조와 외부 저장소 정합성을 다시 설계했습니다.
 
-현재 기본 브랜치에는 DTO와 엔티티 변경 후 서비스·테스트에 반영되지 않은 부분이 있어, 리팩터링 완료 버전으로 소개하지 않습니다.
+## 역할
 
-## 기술 구성
+- **팀 개발 당시** · 카테고리·서브카테고리, 관리자 목록 조회와 캐시, GCS client 재사용, WebP 변환
+- **이후 개인 리팩터링** · N+1 제거와 조회 구조 재설계, 깨진 도메인 계약 복구, 쓰기 API 인가, GCS·DB 보상 처리, 오류 응답 정리
 
-빌드 설정 기준으로 Java 17, Spring Boot 3.3.4, Spring Data JPA, Spring Security, Spring Cache, MapStruct, GCS와 WebP 변환 라이브러리를 사용합니다. PostgreSQL·H2 의존성이 포함되어 있습니다. Redis나 MySQL을 현재 구성의 필수 요소로 표시하지 않습니다.
+## 해결하려는 문제
+
+- 공개 사용자는 프로젝트와 사진을 빠르게 조회할 수 있어야 합니다.
+- 관리자만 프로젝트·카테고리·이미지를 변경할 수 있어야 합니다.
+- 이미지 저장소와 PostgreSQL 중 한쪽만 변경되는 불일치를 줄여야 합니다.
+- 목록 조회에서 불필요한 엔티티 로딩과 N+1을 피해야 합니다.
+
+## Architecture
 
 ```text
-REST Controller
-  └─ Service
-       ├─ JPA Repository → 데이터베이스
-       └─ GcsService → WebP 변환·GCS 저장
+Client
+  │ REST
+Spring MVC / Security
+  │
+Service + transaction boundary
+  ├─ Spring Data JPA ─ PostgreSQL
+  ├─ Spring Cache
+  └─ GcsService ─ Google Cloud Storage
 ```
 
-## 코드에서 확인할 부분
+## 주요 기술
 
-- [프로젝트 API](src/main/java/com/example/portfolio/controller/ProjectController.java)
-- [프로젝트 조회·변경 서비스](src/main/java/com/example/portfolio/service/ProjectService.java)
-- [카테고리 연관 조회와 프로젝트 쿼리](src/main/java/com/example/portfolio/repository/ProjectRepository.java)
-- [사진 처리](src/main/java/com/example/portfolio/service/PhotoService.java)
-- [GCS 연동](src/main/java/com/example/portfolio/service/GcsService.java)
+- Java 17, Spring Boot 3.3
+- Spring MVC, Spring Security, Spring Data JPA
+- PostgreSQL, JPQL DTO projection
+- Google Cloud Storage, WebP 변환
+- Spring Cache, MapStruct
+- JUnit 5, Mockito, Spring MVC Test, Data JPA Test
 
-엔티티의 변경 메서드와 관계 편의 메서드, record DTO, DTO 기반 조회와 fetch join 등의 리팩터링 코드가 있습니다. 이러한 코드의 존재와 전체 빌드·테스트의 통과 여부는 별도로 확인해야 합니다.
+## 핵심 문제와 해결
 
-## 프로젝트 API 경로
+### 1. 캐시로 가렸던 N+1을 원인부터 제거
 
-현재 `ProjectController`에 정의된 경로입니다. 실행 성공을 검증한 API 목록이라는 뜻은 아닙니다.
+팀 개발 당시 JPA를 처음 사용하면서 목록 조회가 느린 원인을 모른 채 캐시로 응답 속도를 맞췄습니다. 이후 쿼리 수는 그대로이고 캐시 무효화 부담만 늘어난 것을 확인했고, 지연 로딩 상태의 반복 접근으로 생기는 N+1이 원인이었습니다.
 
-| 메서드 | 경로 | 역할 |
-| --- | --- | --- |
-| POST | `/api/projects` | 프로젝트 생성 |
-| PUT | `/api/projects/{projectId}` | 프로젝트 수정 |
-| GET | `/api/projects` | 프로젝트 목록 |
-| GET | `/api/projects/{projectId}` | 프로젝트 상세 |
-| GET | `/api/projects/{id}/photos` | 프로젝트 사진 목록 |
-| DELETE | `/api/projects/{projectId}` | 프로젝트 삭제 |
+- 목록은 JPQL DTO projection과 `Slice`로 필요한 컬럼만 조회
+- 관리자 검색은 photo 연관관계를 LEFT JOIN하고 count를 한 쿼리에서 계산
+- category/subcategory는 fetch join으로 조회
+- 조회수는 엔티티 read-modify-write 대신 DB UPDATE 쿼리로 원자 증가
+- 캐시는 필요한 곳에만 남기고, 캐시 키에 page·size·sort·filter를 포함해 서로 다른 요청의 충돌 방지
 
-## 현재 리팩터링 제한
+### 2. 도메인 리팩터링 이후 컴파일 계약 복구
 
-### 서비스와 테스트의 일치
+DTO·mapper·service·repository test가 서로 다른 과거 API를 참조해 clean build가 중단됐습니다. mutable setter를 되살리지 않고 현재 생성자와 연관관계 편의 메서드를 기준으로 mapper와 test를 맞췄습니다. category/subcategory는 service에서 조회한 뒤 Project 생성·수정에 전달합니다.
 
-record로 변경된 DTO와 과거 setter 기반 테스트가 함께 남아 있습니다. 서비스에서 사용하는 Repository 참조·메서드와 현재 선언도 일치 여부를 정리해야 합니다. 테스트 파일이 존재한다는 이유만으로 회귀 검증 완료 상태로 간주하지 않습니다.
+### 3. 공개 조회와 관리자 쓰기 API 분리
 
-### 업로드와 DB의 실패 처리
+기존 security 설정은 `/api/admin/**`만 보호했지만, 실제 쓰기 endpoint는 `/api/projects/**`, `/api/categories/**`에 있었습니다. HTTP method 기준으로 GET은 공개하고 POST/PUT/DELETE는 인증을 요구하도록 수정했고, MVC security test로 고정했습니다.
 
-현재 `GcsService.uploadWebpFile()`은 비동기 업로드를 시작한 뒤 완료를 기다리지 않고 URL을 반환합니다. 따라서 동기 업로드 완료 후 URL을 저장하는 버전과는 다릅니다.
+### 4. GCS 업로드와 DB 트랜잭션 정합성
 
-썸네일 교체 코드에서는 기존 파일 삭제가 먼저 호출됩니다. DB 롤백 시 신규 파일 삭제, DB 커밋 후 기존 파일 삭제가 완성되어 있다고 설명하지 않습니다. 파일 저장소와 DB 사이의 보상 처리 및 실패 테스트는 별도 수정 대상입니다.
+기존 구현은 GCS 업로드를 background executor에 맡긴 즉시 URL을 반환해, 업로드 실패를 DB 트랜잭션이 알 수 없었습니다.
 
-### 성능 수치
+- 업로드 완료 후에만 URL 반환
+- 신규 파일은 DB rollback 시 보상 삭제
+- 교체·삭제 대상 파일은 DB commit 이후 삭제
+- 이미 없는 파일의 삭제는 idempotent하게 처리
+- bucket 이름을 하드코딩하지 않고 설정값으로 URL 검증
 
-기존 문서의 응답 시간·DB 부하 감소·코드 줄 수 감소 수치는 재현 가능한 측정 근거가 확인되지 않아 제거했습니다. 정량 성과를 추가할 때는 데이터 규모, 실행 환경, 측정 방법과 전후 결과를 함께 기록해야 합니다.
+**트레이드오프** · DB와 object storage를 하나의 ACID 트랜잭션으로 묶을 수는 없습니다. transaction synchronization으로 실패 순서별 불일치 가능성을 줄이는 보상 방식을 택했고, 동기 업로드로 응답은 느려지지만 저장된 URL이 항상 실제 파일을 가리키는 쪽을 우선했습니다.
 
-## 로컬 검증 절차
+### 5. 오류 응답
 
-JDK 17을 준비하고 저장소 루트에서 실행합니다.
+DB·예상하지 못한 예외 원문은 서버 로그에 남기고, API에는 일반화된 5xx 응답만 반환합니다. 테이블, 쿼리, 저장소 endpoint가 클라이언트에 노출되지 않도록 했습니다.
+
+## 테스트
+
+- GET 공개 및 익명 쓰기 거부
+- 현재 도메인 생성자와 연관관계 기반 repository 저장
+- category/subcategory를 해석한 프로젝트 생성
+- 이미지 업로드 후 photo-project 연관관계 저장
+- DB commit 전 기존 GCS 파일 미삭제
+- DB rollback 시 신규 GCS 파일 보상 삭제
+- 내부 예외 detail 비노출
 
 ```bash
-./gradlew compileJava
-./gradlew test
+./gradlew clean test
 ```
 
-Windows에서는 `.\gradlew.bat`를 사용합니다. 현재 리팩터링 불일치가 남아 있으므로 위 명령을 통과했다고 보장하지 않습니다. 먼저 컴파일·테스트를 정리한 뒤 실행 환경을 설정해야 합니다.
+## 실행 환경
 
-GCS 서비스는 `spring.cloud.gcp.storage.bucket`과 `spring.cloud.gcp.storage.credentials.location` 설정을 읽습니다. 자격 증명은 저장소 밖에서 관리해야 합니다. 테스트에는 외부 GCS 호출을 분리하고 개발용 DB를 사용하세요.
+필수 환경변수: `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`, `GCS_KEY`, `PROJECT_ID`, `BUCKET`
 
-이 문서 수정은 소스 코드 리팩터링이나 배포를 수행한 작업이 아닙니다. 현재 저장소와 문서의 불일치를 바로잡은 것입니다.
+secret과 service-account key는 저장소에 두지 않습니다.
+
+## 다음 과제
+
+- 실 GCS와 PostgreSQL을 함께 쓰는 장애 주입 통합 테스트
+- 다중 인스턴스 환경의 캐시 일관성 (현재는 로컬 Spring Cache)
+- 재현 가능한 벤치마크로 조회 성능 수치 측정
+
+## 배운 점
+
+외부 저장소 호출은 `@Transactional`만으로 원자화할 수 없습니다. 업로드와 삭제의 순서를 나누고 rollback/after-commit 보상을 명시해야, 어떤 실패에서 고아 파일이나 깨진 URL이 생기는지 설명하고 테스트할 수 있었습니다.
