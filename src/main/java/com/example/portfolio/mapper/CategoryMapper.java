@@ -40,7 +40,9 @@ public interface CategoryMapper {
     SubCategoryDto subCategoryToDto(SubCategory subCategory);
 
     // Create DTO -> Entity (category는 PathVariable로 받은 Category를 주입)
-    @Mapping(target = "id", ignore = true)
-    @Mapping(target = "category", source = "category")
-    SubCategory createSubCategoryToSubCategory(SubCategoryCreateDto dto, Category category);
+    default SubCategory createSubCategoryToSubCategory(SubCategoryCreateDto dto, Category category) {
+        SubCategory subCategory = new SubCategory(dto.name());
+        category.addSubCategory(subCategory);
+        return subCategory;
+    }
 }

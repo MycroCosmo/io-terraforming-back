@@ -4,6 +4,7 @@ import java.util.List;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -44,6 +45,12 @@ public class WebSecurityConfig {
 
                 // 관리자 API는 반드시 보호
                 .requestMatchers("/api/admin/**").authenticated()
+
+                // 공개 조회와 관리자 쓰기 요청을 HTTP method로 분리
+                .requestMatchers(HttpMethod.GET, "/api/projects/**", "/api/categories/**").permitAll()
+                .requestMatchers(HttpMethod.POST, "/api/projects/**", "/api/categories/**").authenticated()
+                .requestMatchers(HttpMethod.PUT, "/api/projects/**", "/api/categories/**").authenticated()
+                .requestMatchers(HttpMethod.DELETE, "/api/projects/**", "/api/categories/**").authenticated()
 
                 // 나머지는 공개
                 .anyRequest().permitAll()

@@ -1,11 +1,12 @@
 package com.example.portfolio.mapper;
 
 import org.mapstruct.Mapper;
-import org.mapstruct.Mapping;
 import org.mapstruct.ReportingPolicy;
 
 import com.example.portfolio.dto.ProjectCreateDto;
+import com.example.portfolio.model.Category;
 import com.example.portfolio.model.Project;
+import com.example.portfolio.model.SubCategory;
 
 @Mapper(
     componentModel = "spring",
@@ -14,13 +15,7 @@ import com.example.portfolio.model.Project;
 )
 public interface ProjectMapper {
 
-    // 연관관계(category, subCategory)는 서비스에서 주입할 것
-    @Mapping(target = "id", ignore = true)
-    @Mapping(target = "category", ignore = true)
-    @Mapping(target = "subCategory", ignore = true)
-    @Mapping(target = "thumbnailUrl", ignore = true)
-    @Mapping(target = "createdAt", ignore = true)
-    @Mapping(target = "view", ignore = true)
-    @Mapping(target = "photos", ignore = true)
-    Project createDtoToProject(ProjectCreateDto dto);
+    default Project createDtoToProject(ProjectCreateDto dto, Category category, SubCategory subCategory) {
+        return new Project(dto.title(), category, subCategory);
+    }
 }
